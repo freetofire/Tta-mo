@@ -1,0 +1,230 @@
+<!--
+Telegram Referral System (Mini App + Vercel + Firebase + Telegraf)
+Author: ChatGPT
+Language: Bengali instructions + code
+
+What this package contains (single-file doc shows multiple code snippets):
+1) index.html         -> Mini app (landing page) hosted on Vercel. Generates referral link and 'Start Bot' button.
+2) api/bot.js         -> Vercel serverless function (Node) that runs a Telegraf bot webhook (handles /start). Updates Firestore and notifies referrer.
+3) firebase-admin-init -> Server-side firebase admin init snippet (used in api/bot.js).
+4) Firestore structure + security notes + deployment steps
+
+IMPORTANT SECURITY NOTE:
+- Never expose your BOT_TOKEN or Firebase Admin service account on client-side HTML. The server code (api/bot.js) runs on Vercel (serverless) and holds secrets via environment variables.
+- The provided snippets use environment variables: BOT_TOKEN, FIREBASE_SERVICE_ACCOUNT (JSON string) or path.
+--><!doctype html>
+
+<html lang="bn">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>TTAMO Referral Mini App</title>
+  <style>
+    body{font-family:Inter, system-ui, sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f7fafc;margin:0}
+    .card{background:#fff;padding:24px;border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,0.08);width:100%;max-width:520px}
+    input,button{padding:10px 12px;border-radius:8px;border:1px solid #e2e8f0;font-size:16px}
+    .row{display:flex;gap:8px;margin-top:12px}
+    small{color:#64748b}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>TTAMO Referral Mini App</h2>
+    <p>আপনার টেলিগ্রাম আইডি দিন (Numeric) — আমরা রেফারেল লিংক তৈরি করে দেব।</p><label>আপনার Telegram numeric ID (উদাহরণ: 7109891636)</label>
+<div class="row">
+  <input id="tgId" placeholder="আপনার Telegram ID লিখুন" />
+  <button id="gen">লিংক তৈরি করুন</button>
+</div>
+
+<div id="out" style="margin-top:14px"></div>
+
+<hr style="margin:18px 0">
+<p><small>নোট: এই পেজটি কেবল ল্যান্ডিং পেজ — বট স্টার্ট করার জন্য ব্যবহারকারীকে Telegram এ পাঠাবে (t.me/ttamo_bot?start=REFCODE). বট সার্ভার (Vercel) Firestore-এ রেফারাল লগ করবে এবং রেফারারের কাছে মেসেজ পাঠাবে — API টোকেন সার্ভারে সংরক্ষণ করুন।</small></p>
+
+  </div>  <script>
+    // Replace the domain below with your deployed Vercel domain if you want to validate referrals
+    const DEPLOYED_DOMAIN = location.origin; // you can change if needed
+
+    function makeRefCode(tgId){
+      // Simple refcode (you can use hashed value server-side if you like)
+      return 'u' + String(tgId);
+    }
+
+    document.getElementById('gen').addEventListener('click', ()=>{
+      const id = document.getElementById('tgId').value.trim();
+      const out = document.getElementById('out');
+      out.innerHTML = '';
+      if(!id || !/^\d+$/.test(id)){
+        out.innerHTML = '<p style="color:#e11d48">সঠিক numeric Telegram ID দিন।</p>';
+        return;
+      }
+      const ref = makeRefCode(id);
+      const botUser = 'ttamo_bot'; // change if different
+      const startLink = `https://t.me/${botUser}?start=${ref}`;
+      const miniAppLink = `${DEPLOYED_DOMAIN}/?ref=${ref}`;
+
+      out.innerHTML = `
+        <p><strong>Referral Link (user-to-user):</strong></p>
+        <p><a href="${startLink}" target="_blank">${startLink}</a></p>
+        <p style="margin-top:6px"><strong>Mini App link (shareable):</strong></p>
+        <p><a href="${miniAppLink}" target="_blank">${miniAppLink}</a></p>
+        <p style="margin-top:8px">বট স্টার্ট করলে — যিনি স্টার্ট করবেন তার Telegram ID বট পাবে এবং ?start=REFCODE প্যারামিটার থেকে রেফারারকে খুঁজে Firestore-এ লগ করা হবে।</p>
+      `;
+    });
+
+    // If visitor opened mini app with ?ref=..., show CTA to Open Bot
+    (function checkQuery(){
+      const url = new URL(location.href);
+      const ref = url.searchParams.get('ref');
+      if(ref){
+        const btn = document.createElement('div');
+        btn.innerHTML = `<p>আপনি কাউকে রেফার করা লিংক থেকে এসেছেন।</p><p><a href="https://t.me/ttamo_bot?start=${ref}" target="_blank"><button>Open in Telegram</button></a></p>`;
+        document.getElementById('out').prepend(btn);
+      }
+    })();
+  </script>  <!-- BELOW: Server-side example (for Vercel) - put this code into /api/bot.js on Vercel (Node)
+       This code uses telegraf and firebase-admin. Keep BOT_TOKEN and service account secret in Vercel env vars.
+
+  Example package.json deps for server:
+  {
+    "dependencies": {
+      "telegraf": "^4.12.0",
+      "firebase-admin": "^11.0.0"
+    }
+  }
+  -->  <!--
+  ================== api/bot.js (Vercel Serverless) ==================
+  // Save as /api/bot.js (or api/bot/index.js). Use "serverless" target (Vercel default).
+  -->  <script type="text/plain" id="server-code">
+  // --- START server-side code (Node) ---
+  // NOTE: This is NOT for client-side. Put into a server file (api/bot.js) and deploy on Vercel.
+
+  /*
+  const { Telegraf } = require('telegraf');
+  const admin = require('firebase-admin');
+
+  // Init Firebase Admin with service account (set FIREBASE_SERVICE_ACCOUNT env var to JSON string)
+  if(!admin.apps.length){
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+  }
+  const db = admin.firestore();
+
+  const bot = new Telegraf(process.env.BOT_TOKEN);
+
+  // Handle /start with optional param
+  bot.start(async (ctx) => {
+    try{
+      const from = ctx.from; // object contains id, first_name, username
+      const text = ctx.update.message.text || '';
+      // /start param format: /start u7109891636
+      const parts = text.split(' ');
+      let ref = null;
+      if(parts.length > 1){
+        ref = parts[1];
+      }
+
+      // Save new user to Firestore (if not exists)
+      const usersRef = db.collection('users');
+      const userDoc = usersRef.doc(String(from.id));
+      const userSnap = await userDoc.get();
+      if(!userSnap.exists){
+        await userDoc.set({
+          id: from.id,
+          username: from.username || null,
+          first_name: from.first_name || null,
+          createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      }
+
+      // If started with referral param
+      if(ref){
+        // simple mapping: 'u<ID>' -> id
+        let referrerId = null;
+        if(ref.startsWith('u')) referrerId = ref.slice(1);
+        // Avoid self-referral
+        if(referrerId && String(referrerId) !== String(from.id)){
+          const referralsRef = db.collection('referrals');
+          // create referral record
+          await referralsRef.add({
+            referrerId: String(referrerId),
+            referredId: String(from.id),
+            referredUsername: from.username || null,
+            ts: admin.firestore.FieldValue.serverTimestamp(),
+            via: 'bot_start'
+          });
+
+          // increment counters (atomic)
+          const statsRef = db.collection('users_stats').doc(String(referrerId));
+          await db.runTransaction(async (t)=>{
+            const s = await t.get(statsRef);
+            if(!s.exists) t.set(statsRef, {referrals:1, balance:200});
+            else t.update(statsRef, {referrals: admin.firestore.FieldValue.increment(1), balance: admin.firestore.FieldValue.increment(200)});
+          });
+
+          // Notify referrer via bot
+          try{
+            await ctx.telegram.sendMessage(referrerId, `রেফার বোনাস ২০০ পেয়েছেন — কেউ একজন জয়েন করছে আপনার লিংক থেকে (ID: ${from.id}${from.username? ', @'+from.username: ''})`);
+          }catch(e){
+            console.error('Failed to notify referrer:', e);
+          }
+
+          // Reply to new user
+          await ctx.reply('আপনি সফলভাবে যোগ দিলেন — রেফারারকে ধন্যবাদ!');
+          return;
+        }
+      }
+
+      // default reply (no referral or self referral)
+      await ctx.reply('স্বাগতম! আপনার রেফারেল লিংক শেয়ার করুন এবং ক্যাশ ব্যাগান করুন।');
+    }catch(err){
+      console.error('Start handler error', err);
+    }
+  });
+
+  // If using webhook (Vercel), export handler
+  module.exports = async function (req, res) {
+    try{
+      if(req.method === 'POST'){
+        // telegraf webhook callback
+        await bot.handleUpdate(req.body, res);
+        res.status(200).send('OK');
+      }else{
+        res.status(200).send('Telegram bot endpoint');
+      }
+    }catch(e){
+      console.error(e);
+      res.status(500).send('Error');
+    }
+  }
+  */
+
+  // --- END server-side code ---
+  </script>  <!--
+  ================== Firestore structure (recommended) ==================
+  collections:
+  - users (docId = telegramId)
+    { id, username, first_name, createdAt }
+
+  - referrals (auto-id)
+    { referrerId, referredId, referredUsername, ts, via }
+
+  - users_stats (docId = telegramId)
+    { referrals: number, balance: number }
+
+  ================== Deployment Steps (short) ==================
+  1) Create a Vercel project, connect your Git repo containing index.html and api/bot.js.
+  2) In Vercel project settings -> Environment Variables add:
+     - BOT_TOKEN = 8264335895:AAE3ZtLWbrFci6ewwewFeahGhFxi7WwFkTQ
+     - FIREBASE_SERVICE_ACCOUNT = <JSON string of your Firebase service account key>
+  3) Install dependencies (telegraf, firebase-admin) in package.json and deploy.
+  4) Set Telegram webhook to your Vercel endpoint (only if using webhook). Example:
+     https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://your-vercel-app.vercel.app/api/bot
+  5) Test: share link https://t.me/ttamo_bot?start=u7109891636 and watch Firestore and notifications.
+
+  Security warnings:
+  - Do not commit service account JSON into public repo.
+  - Use environment variables.
+
+  --></body>
+</html>
